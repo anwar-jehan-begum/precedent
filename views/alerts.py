@@ -6,10 +6,8 @@ from data.mock_data import (
     get_alert,
     get_alerts,
     get_pep_watchlist_status,
-    get_precedents,
     get_typology_knowledge,
-    generate_decision,
-    record_decision,
+    get_audit_trail,
 )
 from ui.components.cards import alert_card
 from ui.components.decision_card import (
@@ -43,12 +41,151 @@ def _select_alert(alert_id: str):
     st.session_state.analysis_complete = {}
     st.session_state.decision_recorded = {}
     st.session_state[f"show_override_{alert_id}"] = False
+    # Clear any cached live analysis so re-opening re-runs fresh
+    keys_to_clear = [k for k in st.session_state if k.startswith("live_analysis_")]
+    for k in keys_to_clear:
+        del st.session_state[k]
     st.rerun()
 
 
 def _back_to_queue():
     st.session_state.selected_alert = None
     st.rerun()
+
+
+# ============================================================
+# INTEGRATION HELPERS
+# ============================================================
+
+def _build_alert_full(alert: dict) -> dict:
+    """
+    Merge the UI alert dict with additional fields the DecisionEngine needs.
+    Fields come only from the existing alert dict — nothing is invented.
+    """
+    pep = get_pep_watchlist_status(alert.get("customer", ""))
+    return {
+        # Primary ID fields
+        "alert_id": alert.get("id", ""),
+        "customer_id": alert.get("customer_id", ""),
+        # Typology/pattern fields
+        "typology": alert.get("typology", ""),
+        "transaction_pattern": alert.get("typology", ""),   # best proxy available
+        "amount": alert.get("amount", 0),
+        "currency": alert.get("currency", "INR"),
+        # Guardrail signals
+        "pep_match": pep.get("pep", False),
+        "watchlist_match": pep.get("watchlist", False),
+        # Preserve all original UI keys for UI rendering
+        **alert,
+    }
+
+
+def _get_or_run_analysis(alert_full: dict) -> dict:
+    """
+    Run precedent_service.analyze_alert(alert_full) and cache the result
+    in session state so it survives reruns.
+
+    Falls back gracefully to mock data if the integration layer fails,
+    so the UI never crashes.
+    """
+    alert_id = alert_full.get("id", alert_full.get("alert_id", ""))
+    cache_key = f"live_analysis_{alert_id}"
+
+    if cache_key not in st.session_state:
+        try:
+            from integration.precedent_service import analyze_alert
+            result = analyze_alert(alert_full)
+        except Exception as exc:
+            # Complete fallback: return a mock-style result so UI doesn't crash
+            from data.mock_data import get_precedents as mock_get_precedents
+            mock_prec = mock_get_precedents(alert_id)
+            result = {
+                "success": False,
+                "decision": "ESCALATE" if alert_full.get("risk", "HIGH") != "LOW" else "CLEAR",
+                "recommendation": "ESCALATE" if alert_full.get("risk", "HIGH") != "LOW" else "CLEAR",
+                "risk_level": alert_full.get("risk", "MEDIUM"),
+                "confidence": alert_full.get("confidence", 70),
+                "confidence_raw": alert_full.get("confidence", 70) / 100.0,
+                "reason": (
+                    "Live AI analysis unavailable — showing pattern-based estimate. "
+                    f"({type(exc).__name__})"
+                ),
+                "key_factors": [],
+                "precedents_used": [p["id"] for p in mock_prec],
+                "precedent_count": len(mock_prec),
+                "memory_count": 0,
+                "guardrail_applied": False,
+                "human_review_required": True,
+                "latency_ms": 0,
+                "error": str(exc),
+                "hindsight_precedents": [],
+                "hindsight_available": False,
+                "_mock_precedents": mock_prec,
+            }
+        st.session_state[cache_key] = result
+
+    return st.session_state[cache_key]
+
+
+def _do_record_decision(
+    alert_full: dict,
+    agent_recommendation: str,
+    final_decision: str,
+    analyst_reason: str,
+    analyst_note,
+    confidence: int,
+    precedents_used: list,
+) -> dict:
+    """
+    Call integration.precedent_service.record_analyst_decision().
+    Falls back to mock record_decision if integration is unavailable.
+    Builds the entry dict the UI components expect.
+    """
+    from datetime import datetime
+
+    try:
+        from integration.precedent_service import record_analyst_decision
+        result = record_analyst_decision(
+            alert=alert_full,
+            agent_recommendation=agent_recommendation,
+            final_decision=final_decision,
+            analyst_reason=analyst_reason,
+            analyst_note=analyst_note,
+            confidence=confidence,
+            precedents_used=precedents_used,
+        )
+        override = result.get("override", False)
+        entry = {
+            "alert": alert_full.get("id", ""),
+            "ai_recommendation": agent_recommendation,
+            "confidence": confidence,
+            "precedents_used": precedents_used,
+            "human_decision": final_decision,
+            "override": override,
+            "override_reason": analyst_reason if override else None,
+            "analyst_note": analyst_note,
+            "timestamp": datetime.now().strftime("%d %b %Y, %H:%M"),
+            "memory_update": result.get("memory_update", "Decision recorded."),
+            "hindsight_success": result.get("success", False),
+            "hindsight_error": result.get("error"),
+        }
+        return entry
+    except Exception as exc:
+        override = agent_recommendation.upper() != final_decision.upper()
+        return {
+            "alert": alert_full.get("id", ""),
+            "ai_recommendation": agent_recommendation,
+            "confidence": confidence,
+            "precedents_used": precedents_used,
+            "human_decision": final_decision,
+            "override": override,
+            "override_reason": analyst_reason if override else None,
+            "analyst_note": analyst_note,
+            "timestamp": datetime.now().strftime("%d %b %Y, %H:%M"),
+            "memory_update": f"Memory update failed ({type(exc).__name__}) — decision logged locally only.",
+            "hindsight_success": False,
+            "hindsight_error": str(exc),
+        }
 
 
 # ============================================================
@@ -448,6 +585,10 @@ def _render_case_intelligence(alert_id: str):
 
                 trace_placeholder.empty()
 
+                # Run real analysis now (cached so reruns are instant)
+                alert_full = _build_alert_full(alert)
+                _get_or_run_analysis(alert_full)
+
                 analysis_state[alert_id] = True
 
                 st.rerun()
@@ -672,9 +813,9 @@ def _render_case_intelligence(alert_id: str):
     # CENTER — AI DECISION
     # ========================================================
 
-    decision = generate_decision(
-        alert
-    )
+    # Build the full alert dict the engine needs, then run real analysis
+    alert_full = _build_alert_full(alert)
+    decision = _get_or_run_analysis(alert_full)
 
     with center:
 
@@ -767,11 +908,11 @@ def _render_case_intelligence(alert_id: str):
 
             if action == "accept":
 
-                entry = record_decision(
-                    alert_id,
+                entry = _do_record_decision(
+                    alert_full,
                     decision["recommendation"],
                     decision["recommendation"],
-                    None,
+                    "",
                     None,
                     decision["confidence"],
                     decision["precedents_used"],
@@ -806,8 +947,8 @@ def _render_case_intelligence(alert_id: str):
                         note,
                     ) = result
 
-                    entry = record_decision(
-                        alert_id,
+                    entry = _do_record_decision(
+                        alert_full,
                         decision["recommendation"],
                         human_decision,
                         reason,
@@ -879,9 +1020,23 @@ def _render_case_intelligence(alert_id: str):
 
     with right:
 
-        precedents = get_precedents(
-            alert_id
-        )
+        # Use real Hindsight precedents from the live analysis result.
+        # Fall back to mock precedents only if Hindsight is unavailable.
+        hindsight_precedents = decision.get("hindsight_precedents", [])
+        mock_fallback = decision.get("_mock_precedents", [])
+
+        if hindsight_precedents:
+            precedents = hindsight_precedents
+            memory_source_label = "Hindsight"
+        elif mock_fallback:
+            precedents = mock_fallback
+            memory_source_label = "Local (Hindsight unavailable)"
+        else:
+            precedents = []
+            memory_source_label = "None"
+
+        mem_count = decision.get("memory_count", len(precedents))
+        hindsight_ok = decision.get("hindsight_available", True)
 
         render_html(
             f"""
@@ -909,12 +1064,20 @@ def _render_case_intelligence(alert_id: str):
                     border-radius:999px;
                     padding:3px 8px;
                 ">
-                    {len(precedents)} precedents
+                    {len(precedents)} precedents · {mem_count} memories
                 </div>
 
             </div>
             """
         )
+
+        if not hindsight_ok and not hindsight_precedents:
+            st.warning(
+                "⚠ Hindsight is temporarily unavailable. "
+                "Showing locally cached precedents."
+                if mock_fallback
+                else "⚠ Hindsight is temporarily unavailable. No precedents loaded."
+            )
 
         if not precedents:
 
@@ -939,11 +1102,11 @@ def _render_case_intelligence(alert_id: str):
                 """
             )
 
-            for precedent in precedents:
+            for i, precedent in enumerate(precedents):
 
                 precedent_card(
                     precedent,
-                    key_prefix=f"case_{alert_id}",
+                    key_prefix=f"case_{alert_id}_{i}",
                 )
 
         # ----------------------------------------------------
@@ -955,13 +1118,13 @@ def _render_case_intelligence(alert_id: str):
             clear_count = sum(
                 1
                 for p in precedents
-                if p["decision"] == "CLEAR"
+                if p.get("decision", "") == "CLEAR"
             )
 
             escalate_count = sum(
                 1
                 for p in precedents
-                if p["decision"] == "ESCALATE"
+                if p.get("decision", "") == "ESCALATE"
             )
 
             render_html(
@@ -1009,4 +1172,4 @@ def _render_case_intelligence(alert_id: str):
 
                 </div>
                 """
-            )
+            )

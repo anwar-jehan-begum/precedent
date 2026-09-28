@@ -22,6 +22,12 @@ HISTORICAL PRECEDENTS
 """
 
     if precedents:
+        # FIX 3 — compute the actual decision distribution and surface it
+        # explicitly so the model cannot claim unanimity when decisions are mixed.
+        clear_count = sum(1 for p in precedents if str(p.get("decision", "")).upper() == "CLEAR")
+        escalate_count = sum(1 for p in precedents if str(p.get("decision", "")).upper() == "ESCALATE")
+        prompt += f"Decision distribution across retrieved precedents: {escalate_count} ESCALATE, {clear_count} CLEAR\n"
+
         for precedent in precedents:
             prompt += f"""
 Alert ID: {precedent.get("alert_id")}
@@ -43,7 +49,9 @@ DECISION RULES
 
 3. Use historical precedents as supporting evidence.
 
-4. If historical cases conflict, explicitly consider the conflict.
+4. If historical precedents show mixed decisions (some CLEAR, some ESCALATE),
+   you MUST explicitly acknowledge the conflict in your reason. Do NOT claim
+   that precedents were unanimous unless every retrieved precedent agrees.
 
 5. A PEP or watchlist match requires human review.
 
@@ -74,4 +82,4 @@ Requirements:
 - return JSON only
 """
 
-    return prompt
+    return prompt
