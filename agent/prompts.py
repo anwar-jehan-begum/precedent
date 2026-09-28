@@ -47,15 +47,23 @@ DECISION RULES
 
 2. Do not invent facts.
 
-3. Use historical precedents as supporting evidence.
+3. Use historical precedents as supporting evidence only.
 
 4. If historical precedents show mixed decisions (some CLEAR, some ESCALATE),
    you MUST explicitly acknowledge the conflict in your reason. Do NOT claim
    that precedents were unanimous unless every retrieved precedent agrees.
+   Do NOT claim "All identical historical precedents were escalated" unless
+   the Decision distribution line above confirms that.
 
 5. A PEP or watchlist match requires human review.
 
 6. The final explanation must be based only on the supplied evidence.
+
+7. PRECEDENT is a decision-SUPPORT tool. The human analyst makes the final
+   call. Never state or imply that PRECEDENT independently determined or
+   confirmed that money laundering occurred. Use language such as
+   "indicators suggest escalation" or "pattern warrants analyst review",
+   not "money laundering was confirmed" or "laundering was detected".
 
 Return ONLY valid JSON using exactly this structure:
 
@@ -75,7 +83,7 @@ Requirements:
 - decision must be exactly CLEAR or ESCALATE
 - risk_level must be exactly LOW, MEDIUM, or HIGH
 - confidence must be a number between 0.0 and 1.0
-- reason must explain the decision using supplied evidence
+- reason must explain the decision using supplied evidence only
 - key_factors must contain the main evidence used
 - do not add fields
 - do not invent facts

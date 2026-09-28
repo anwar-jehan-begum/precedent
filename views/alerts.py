@@ -2,9 +2,8 @@
 
 import streamlit as st
 
+from data.live_alerts import get_alert, get_alerts
 from data.mock_data import (
-    get_alert,
-    get_alerts,
     get_pep_watchlist_status,
     get_typology_knowledge,
     get_audit_trail,
@@ -61,32 +60,39 @@ def _build_alert_full(alert: dict) -> dict:
     """
     Merge the UI alert dict with additional fields the DecisionEngine needs.
     Fields come only from the existing alert dict — nothing is invented.
+
+    For dataset-derived alerts, `transaction_pattern` is the comma-joined
+    signal string from alert_generator (e.g. "rapid_movement, high_value_transaction").
+    For mock alerts, it falls back to the typology label.
     """
     pep = get_pep_watchlist_status(alert.get("customer", ""))
     return {
         # Primary ID fields
-        "alert_id": alert.get("id", ""),
+        "alert_id": alert.get("alert_id") or alert.get("id", ""),
+        "id":        alert.get("id") or alert.get("alert_id", ""),
         "customer_id": alert.get("customer_id", ""),
-        # Typology/pattern fields
+        # Typology/pattern fields — prefer genuine dataset values
         "typology": alert.get("typology", ""),
-        "transaction_pattern": alert.get("typology", ""),   # best proxy available
-        "amount": alert.get("amount", 0),
-        "currency": alert.get("currency", "INR"),
+        "transaction_pattern": (
+            alert.get("transaction_pattern")    # real signal string from dataset
+            or alert.get("typology", "")        # mock-alert fallback
+        ),
+        "amount":   alert.get("amount", 0),
+        "currency": alert.get("currency", "USD"),
         # Guardrail signals
-        "pep_match": pep.get("pep", False),
+        "pep_match":      pep.get("pep", False),
         "watchlist_match": pep.get("watchlist", False),
         # Preserve all original UI keys for UI rendering
         **alert,
     }
 
 
+
 def _get_or_run_analysis(alert_full: dict) -> dict:
     """
-    Run precedent_service.analyze_alert(alert_full) and cache the result
-    in session state so it survives reruns.
-
-    Falls back gracefully to mock data if the integration layer fails,
-    so the UI never crashes.
+    Run precedent_service.analyze_alert(alert_full) and cache the result.
+    On failure, returns a result that clearly reports the error but does NOT
+    substitute mock/fabricated precedents or decisions.
     """
     alert_id = alert_full.get("id", alert_full.get("alert_id", ""))
     cache_key = f"live_analysis_{alert_id}"
@@ -96,35 +102,30 @@ def _get_or_run_analysis(alert_full: dict) -> dict:
             from integration.precedent_service import analyze_alert
             result = analyze_alert(alert_full)
         except Exception as exc:
-            # Complete fallback: return a mock-style result so UI doesn't crash
-            from data.mock_data import get_precedents as mock_get_precedents
-            mock_prec = mock_get_precedents(alert_id)
+            # Return a transparent error result — no mock data, no fabricated numbers.
             result = {
-                "success": False,
-                "decision": "ESCALATE" if alert_full.get("risk", "HIGH") != "LOW" else "CLEAR",
-                "recommendation": "ESCALATE" if alert_full.get("risk", "HIGH") != "LOW" else "CLEAR",
-                "risk_level": alert_full.get("risk", "MEDIUM"),
-                "confidence": alert_full.get("confidence", 70),
-                "confidence_raw": alert_full.get("confidence", 70) / 100.0,
-                "reason": (
-                    "Live AI analysis unavailable — showing pattern-based estimate. "
-                    f"({type(exc).__name__})"
-                ),
-                "key_factors": [],
-                "precedents_used": [p["id"] for p in mock_prec],
-                "precedent_count": len(mock_prec),
-                "memory_count": 0,
-                "guardrail_applied": False,
+                "success":             False,
+                "decision":            None,
+                "recommendation":      None,
+                "risk_level":          None,
+                "confidence":          None,
+                "confidence_raw":      None,
+                "reason":              f"Analysis failed: {type(exc).__name__}: {exc}",
+                "key_factors":         [],
+                "precedents_used":     [],
+                "precedent_count":     0,
+                "memory_count":        0,
+                "guardrail_applied":   False,
                 "human_review_required": True,
-                "latency_ms": 0,
-                "error": str(exc),
+                "latency_ms":          0,
+                "error":               str(exc),
                 "hindsight_precedents": [],
                 "hindsight_available": False,
-                "_mock_precedents": mock_prec,
             }
         st.session_state[cache_key] = result
 
     return st.session_state[cache_key]
+
 
 
 def _do_record_decision(
@@ -208,6 +209,33 @@ def render():
 # ============================================================
 
 def _render_queue():
+
+    # --------------------------------------------------------
+    # DATASET BLOCKER — must appear before any other content
+    # --------------------------------------------------------
+    from data.live_alerts import using_dataset as _using_dataset
+    if not _using_dataset():
+        render_html(
+            f"""
+            <div style="margin-bottom:1.35rem;">
+                <div style="font-size:1.45rem;font-weight:750;
+                            color:{COLORS['text_primary']};">Alert Queue</div>
+            </div>
+            """
+        )
+        st.error(
+            "**FINAL BLOCKER — Dataset missing**\n\n"
+            "`data/HI-Small/HI-Small_Trans.csv` is not present in this workspace.\n\n"
+            "Place the file at that exact path and restart Streamlit. "
+            "All integration code is ready — no further changes required.",
+            icon="🚫",
+        )
+        st.info(
+            "Memory Explorer, Consistency Audit, and Evaluation "
+            "remain functional using live Hindsight data.",
+            icon="ℹ️",
+        )
+        return
 
     render_html(
         f"""
@@ -841,6 +869,9 @@ def _render_case_intelligence(alert_id: str):
 
         recommendation_card(
             decision
+        ) if decision.get("recommendation") is not None else st.error(
+            f"Analysis failed: {decision.get('error', 'unknown error')}",
+            icon="⚠️",
         )
 
         st.write("")
@@ -871,7 +902,7 @@ def _render_case_intelligence(alert_id: str):
 
                     PRECEDENT retrieved
                     <b style="color:{COLORS['text_primary']};">
-                        {len(decision['precedents_used'])}
+                        {len(decision.get('precedents_used', []))}
                     </b>
                     historical precedent(s) and evaluated the
                     customer's memory profile before generating
@@ -902,35 +933,34 @@ def _render_case_intelligence(alert_id: str):
 
         if not saved_decision:
 
-            action = review_actions(
-                alert_id
-            )
-
-            if action == "accept":
-
-                entry = _do_record_decision(
-                    alert_full,
-                    decision["recommendation"],
-                    decision["recommendation"],
-                    "",
-                    None,
-                    decision["confidence"],
-                    decision["precedents_used"],
+            if decision.get("recommendation") is None:
+                # Analysis failed — cannot accept/override a non-existent recommendation
+                st.warning(
+                    "AI analysis did not produce a recommendation. "
+                    f"Error: {decision.get('error', 'unknown')}. "
+                    "Check Hindsight and Groq API connectivity.",
+                    icon="⚠️",
                 )
+            else:
+                action = review_actions(alert_id)
 
-                decision_state[alert_id] = entry
+                if action == "accept":
+                    entry = _do_record_decision(
+                        alert_full,
+                        decision["recommendation"],
+                        decision["recommendation"],
+                        "",
+                        None,
+                        decision["confidence"],
+                        decision["precedents_used"],
+                    )
+                    decision_state[alert_id] = entry
+                    st.rerun()
 
-                st.rerun()
+                elif action == "override":
+                    st.session_state[f"show_override_{alert_id}"] = True
 
-            elif action == "override":
-
-                st.session_state[
-                    f"show_override_{alert_id}"
-                ] = True
-
-            if st.session_state.get(
-                f"show_override_{alert_id}"
-            ):
+            if st.session_state.get(f"show_override_{alert_id}") and decision.get("recommendation"):
 
                 st.markdown("")
 
@@ -940,12 +970,7 @@ def _render_case_intelligence(alert_id: str):
                 )
 
                 if result:
-
-                    (
-                        human_decision,
-                        reason,
-                        note,
-                    ) = result
+                    human_decision, reason, note = result
 
                     entry = _do_record_decision(
                         alert_full,
@@ -953,16 +978,12 @@ def _render_case_intelligence(alert_id: str):
                         human_decision,
                         reason,
                         note,
-                        decision["confidence"],
-                        decision["precedents_used"],
+                        decision.get("confidence", 0),
+                        decision.get("precedents_used", []),
                     )
 
                     decision_state[alert_id] = entry
-
-                    st.session_state[
-                        f"show_override_{alert_id}"
-                    ] = False
-
+                    st.session_state[f"show_override_{alert_id}"] = False
                     st.rerun()
 
         else:

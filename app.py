@@ -8,7 +8,8 @@ Run with:
 
 import streamlit as st
 
-from data.mock_data import get_alerts, get_audit_trail
+from data.live_alerts import get_alerts, using_dataset
+from data.mock_data import get_audit_trail
 from ui.components.metrics import metric_row
 from ui.components.sidebar import render_sidebar
 from ui.styles.theme import COLORS, inject_global_css, render_html
@@ -34,6 +35,22 @@ if "selected_alert" not in st.session_state:
 render_sidebar()
 
 
+def _render_dataset_blocker():
+    st.error(
+        "**FINAL BLOCKER — Dataset missing**\n\n"
+        "The HI-Small dataset is not present in this workspace.\n\n"
+        "**Required file:** `data/HI-Small/HI-Small_Trans.csv`\n\n"
+        "Place the file at that path and restart Streamlit. "
+        "All code is ready — no other change needed to activate the real alert pipeline.",
+        icon="🚫",
+    )
+    st.info(
+        "Memory Explorer, Consistency Audit, and Evaluation are still functional "
+        "and use live Hindsight data.",
+        icon="ℹ️",
+    )
+
+
 def render_command_center():
     render_html(
         f"""
@@ -46,10 +63,16 @@ def render_command_center():
         """
     )
 
+    if not using_dataset():
+        _render_dataset_blocker()
+        return
+
+    st.success("Alert queue loaded from HI-Small dataset via alert generator.", icon="✅")
+
     all_alerts = get_alerts()
     high_risk = [a for a in all_alerts if a["risk"] == "HIGH"]
     reviewed = len(get_audit_trail())
-    total_memories = sum(a["precedent_count"] for a in all_alerts)
+    total_memories = sum(a.get("precedent_count", 0) for a in all_alerts)
 
     metric_row(
         [

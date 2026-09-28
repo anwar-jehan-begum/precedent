@@ -4,7 +4,6 @@ import streamlit as st
 
 from data.mock_data import (
     CUSTOMERS,
-    PRECEDENTS,
     TYPOLOGIES,
     get_audit_trail,
 )
@@ -469,30 +468,69 @@ def _render_customer_memory():
 # ================================================================
 
 def _render_precedent_cases():
+    """Display precedent cases from live Hindsight memory bank."""
 
-    all_precedents = []
+    st.caption("Historical precedents retrieved from Hindsight memory bank.")
 
-    for alert_id, cases in PRECEDENTS.items():
+    with st.spinner("Recalling precedents from Hindsight…"):
+        try:
+            from integration.precedent_service import _retrieve_and_filter_precedents
+            # Use a broad synthetic query alert to recall all available precedents
+            synthetic = {
+                "alert_id": "MEMORY-EXPLORER",
+                "id":       "MEMORY-EXPLORER",
+                "typology": "AML",
+                "transaction_pattern": "AML",
+                "customer_id": "",
+                "amount": 0,
+            }
+            recall = _retrieve_and_filter_precedents(synthetic)
+            filtered = recall.get("filtered", [])
+            hindsight_ok = recall.get("success", False)
+        except Exception as exc:
+            filtered = []
+            hindsight_ok = False
+            st.error(f"Hindsight recall error: {exc}")
 
-        for case in cases:
-
-            all_precedents.append(
-                {
-                    **case,
-                    "source_alert": alert_id,
-                }
-            )
-
-    st.caption(
-        f"{len(all_precedents)} historical precedent cases on record"
-    )
-
-    for precedent in all_precedents:
-
-        precedent_card(
-            precedent,
-            key_prefix="explorer",
+    if not hindsight_ok:
+        st.warning(
+            "Hindsight memory bank is not reachable. "
+            "Check HINDSIGHT_API_KEY and HINDSIGHT_BASE_URL in .env.",
+            icon="⚠️",
         )
+        return
+
+    if not filtered:
+        render_html(
+            f"""
+            <div style="background:{COLORS['surface']};border:1px solid {COLORS['border']};
+                        border-radius:9px;padding:0.85rem 1rem;
+                        color:{COLORS['text_muted']};font-size:0.8rem;">
+                No authoritative precedents found in Hindsight bank.
+                Decisions recorded during analyst review sessions will appear here.
+            </div>
+            """
+        )
+        return
+
+    st.caption(f"{len(filtered)} historical precedent cases on record in Hindsight")
+
+    for p in filtered:
+        # Convert Hindsight precedent to the shape precedent_card expects
+        card = {
+            "id":         p.get("alert_id", "UNKNOWN"),
+            "similarity": "Relevant precedent",
+            "decision":   p.get("decision", "UNKNOWN"),
+            "pattern":    p.get("typology", "Historical alert") or "Historical alert",
+            "date":       p.get("timestamp", ""),
+            "reason":     p.get("reason", ""),
+            "analyst":    "Analyst",
+            "matching_factors":  [f"Typology: {p['typology']}"] if p.get("typology") else ["Historical alert"],
+            "differing_factors": ["Analyst overrode AI recommendation"] if p.get("override") else [],
+            "memory_id":  p.get("memory_id", ""),
+            "override":   p.get("override", False),
+        }
+        precedent_card(card, key_prefix="explorer")
 
 
 # ================================================================
