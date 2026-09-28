@@ -1,4 +1,7 @@
-.env
 venv/
 __pycache__/
+.env
 *.pyc
+
+data/HI-Small/
+data/evaluation_alerts.csv
