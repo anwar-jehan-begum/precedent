@@ -12,31 +12,16 @@ from ui.styles.theme import COLORS, render_html
 
 
 def render():
-    # ============================================================
-    # HEADER
-    # ============================================================
-
     render_html(
         f"""
-        <div style="margin-bottom:1.4rem;">
-
-            <div style="
-                font-size:1.5rem;
-                font-weight:750;
-                color:{COLORS['text_primary']};
-            ">
+        <div style="margin-bottom:1.2rem;">
+            <div style="font-size:1.4rem;font-weight:800;
+                        color:{COLORS['text_primary']};letter-spacing:0.01em;">
                 Memory Explorer
             </div>
-
-            <div style="
-                font-size:0.83rem;
-                color:{COLORS['text_secondary']};
-                margin-top:4px;
-            ">
-                Every decision PRECEDENT has ever seen,
-                organized as institutional memory.
+            <div style="font-size:0.78rem;color:{COLORS['text_secondary']};margin-top:3px;">
+                Institutional memory — every analyst decision, precedent, and typology pattern.
             </div>
-
         </div>
         """
     )

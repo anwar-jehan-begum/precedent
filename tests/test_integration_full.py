@@ -12,7 +12,11 @@ import sys
 import os
 import time
 
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+# Only replace stdout when running directly — pytest's capture breaks if we
+# redirect sys.stdout at module-import time.
+if __name__ == "__main__":
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+
 sys.path.insert(0, "C:/PRECEDENT")
 
 PASS = "[PASS]"
@@ -522,31 +526,37 @@ check("20: No hardcoded API keys in source", not exposed,
       f"exposed in: {exposed}" if exposed else "")
 
 
-# ===========================================================================
-# SUMMARY
-# ===========================================================================
-print(f"\n{'='*64}")
-passed  = sum(1 for _,s,_ in results if s == PASS)
-skipped = sum(1 for _,s,_ in results if s == SKIP)
-failed  = sum(1 for _,s,_ in results if s == FAIL)
-total   = len(results)
-print(f"  {passed}/{total} PASS  |  {skipped} SKIP (external deps)  |  {failed} FAIL")
-if failed == 0:
-    print("  ALL CHECKS PASSED OR LEGITIMATELY SKIPPED")
-else:
-    print("  FAILURES:")
-    for label, status, detail in results:
-        if status == FAIL:
-            print(f"    - {label}")
-            if detail:
-                print(f"      {detail}")
-print("=" * 64)
-if not DATASET_EXISTS:
-    print()
-    print("  FINAL BLOCKER:")
-    print(f"  HI-Small_Trans.csv is not present at:")
-    print(f"  {DATASET_PATH}")
-    print("  Place that file there and restart Streamlit.")
-    print("  No code changes are needed.")
 
-sys.exit(0 if failed == 0 else 1)
+# ===========================================================================
+# SUMMARY — only run when executed directly (not when collected by pytest)
+# ===========================================================================
+def _print_summary():
+    print(f"\n{'='*64}")
+    passed  = sum(1 for _,s,_ in results if s == PASS)
+    skipped = sum(1 for _,s,_ in results if s == SKIP)
+    failed  = sum(1 for _,s,_ in results if s == FAIL)
+    total   = len(results)
+    print(f"  {passed}/{total} PASS  |  {skipped} SKIP (external deps)  |  {failed} FAIL")
+    if failed == 0:
+        print("  ALL CHECKS PASSED OR LEGITIMATELY SKIPPED")
+    else:
+        print("  FAILURES:")
+        for label, status, detail in results:
+            if status == FAIL:
+                print(f"    - {label}")
+                if detail:
+                    print(f"      {detail}")
+    print("=" * 64)
+    if not DATASET_EXISTS:
+        print()
+        print("  FINAL BLOCKER:")
+        print(f"  HI-Small_Trans.csv is not present at:")
+        print(f"  {DATASET_PATH}")
+        print("  Place that file there and restart Streamlit.")
+        print("  No code changes are needed.")
+    return sum(1 for _,s,_ in results if s == FAIL)
+
+
+if __name__ == "__main__":
+    failed_count = _print_summary()
+    sys.exit(0 if failed_count == 0 else 1)

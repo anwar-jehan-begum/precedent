@@ -239,27 +239,14 @@ def _render_queue():
 
     render_html(
         f"""
-        <div style="
-            margin-bottom:1.35rem;
-        ">
-
-            <div style="
-                font-size:1.45rem;
-                font-weight:750;
-                color:{COLORS['text_primary']};
-            ">
+        <div style="margin-bottom:1.1rem;">
+            <div style="font-size:1.4rem;font-weight:800;
+                        color:{COLORS['text_primary']};letter-spacing:0.01em;">
                 Alert Queue
             </div>
-
-            <div style="
-                font-size:0.82rem;
-                color:{COLORS['text_secondary']};
-                margin-top:4px;
-            ">
-                Open AML alerts awaiting analyst review,
-                ranked by risk.
+            <div style="font-size:0.78rem;color:{COLORS['text_secondary']};margin-top:3px;">
+                Open AML alerts awaiting analyst review · sorted by risk severity
             </div>
-
         </div>
         """
     )
@@ -452,73 +439,41 @@ def _render_case_intelligence(alert_id: str):
 
     with top_left:
 
+        currency_sym = {"USD": "$", "EUR": "€", "GBP": "£", "INR": "₹"}.get(
+            str(alert.get("currency", "USD")).upper(), ""
+        )
+        amount_display = f"{currency_sym}{alert['amount']:,.0f}"
+
         render_html(
             f"""
-            <div style="
-                margin-bottom:0.2rem;
-            ">
-
+            <div style="margin-bottom:0.3rem;">
                 <div style="
-                    font-size:0.67rem;
-                    color:{COLORS['text_muted']};
-                    text-transform:uppercase;
-                    letter-spacing:0.09em;
-                ">
-                    Case Intelligence
-                </div>
-
-                <div style="
-                    display:flex;
-                    align-items:center;
-                    gap:12px;
-                    flex-wrap:wrap;
-                    margin-top:5px;
-                ">
-
-                    <span style="
-                        font-size:1.55rem;
-                        font-weight:800;
-                        color:{COLORS['text_primary']};
-                    ">
+                    font-size:0.6rem;font-weight:700;letter-spacing:0.1em;
+                    color:{COLORS['text_muted']};text-transform:uppercase;
+                    margin-bottom:5px;
+                ">Case Intelligence</div>
+                <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+                    <span style="font-size:1.4rem;font-weight:800;
+                                 color:{COLORS['text_primary']};letter-spacing:0.01em;">
                         {alert['id']}
                     </span>
-
-                    <span style="
-                        font-size:1.08rem;
-                        color:{COLORS['text_secondary']};
-                    ">
+                    <span style="font-size:0.9rem;color:{COLORS['text_secondary']};">
                         {alert['customer']}
                     </span>
-
-                    <span style="
-                        color:{COLORS['text_secondary']};
-                        font-size:1.0rem;
-                    ">
-                        ₹{alert['amount']:,}
+                    <span style="font-size:1rem;font-weight:700;
+                                 color:{COLORS['text_primary']};font-variant-numeric:tabular-nums;">
+                        {amount_display}
                     </span>
-
                     <span style="
-                        background:{risk_colour}18;
-                        color:{risk_colour};
-                        border:1px solid {risk_colour}55;
-                        border-radius:6px;
-                        padding:3px 9px;
-                        font-size:0.69rem;
-                        font-weight:750;
-                        letter-spacing:0.05em;
-                    ">
-                        {risk} RISK
-                    </span>
-
-                    <span style="
-                        color:{COLORS['text_muted']};
-                        font-size:0.8rem;
-                    ">
+                        background:{risk_colour}14;color:{risk_colour};
+                        border:1px solid {risk_colour}44;border-radius:5px;
+                        padding:2px 9px;font-size:0.65rem;font-weight:700;
+                        letter-spacing:0.06em;
+                    ">{risk} RISK</span>
+                    <span style="font-size:0.78rem;color:{COLORS['text_secondary']};">
                         {alert['typology']}
                     </span>
-
                 </div>
-
             </div>
             """
         )
@@ -847,22 +802,21 @@ def _render_case_intelligence(alert_id: str):
 
     with center:
 
+        hindsight_live = decision.get("hindsight_available", True)
+        mem_badge_col  = COLORS["risk_low"] if hindsight_live else COLORS["risk_medium"]
+        mem_badge_txt  = "● MEMORY ENABLED" if hindsight_live else "○ HINDSIGHT UNAVAILABLE"
+
         render_html(
             f"""
-            <div style="
-                font-size:0.72rem;
-                font-weight:700;
-                color:{COLORS['text_primary']};
-                margin-bottom:8px;
-            ">
-                AI Recommendation
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                <div style="font-size:0.72rem;font-weight:700;
+                            color:{COLORS['text_primary']};">
+                    AI Recommendation
+                </div>
                 <span style="
-                    color:{COLORS['risk_low']};
-                    font-size:0.62rem;
-                    margin-left:6px;
-                ">
-                    ● MEMORY ENABLED
-                </span>
+                    font-size:0.6rem;font-weight:700;letter-spacing:0.06em;
+                    color:{mem_badge_col};
+                ">{mem_badge_txt}</span>
             </div>
             """
         )
@@ -1193,4 +1147,4 @@ def _render_case_intelligence(alert_id: str):
 
                 </div>
                 """
-            )
+            )

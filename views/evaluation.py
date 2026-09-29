@@ -68,10 +68,12 @@ def _unavailable_box(reason: str):
 def render():
     render_html(
         f"""
-        <div style="margin-bottom:1rem;">
-            <div style="font-size:1.45rem;font-weight:700;
-                        color:{COLORS['text_primary']};">Evaluation</div>
-            <div style="font-size:0.82rem;color:{COLORS['text_secondary']};margin-top:4px;">
+        <div style="margin-bottom:1.2rem;">
+            <div style="font-size:1.4rem;font-weight:800;
+                        color:{COLORS['text_primary']};letter-spacing:0.01em;">
+                Evaluation
+            </div>
+            <div style="font-size:0.78rem;color:{COLORS['text_secondary']};margin-top:3px;">
                 Real measured metrics from the HI-Small dataset, alert generator,
                 Hindsight memory bank, and session analyst decisions.
                 Every number here is computed — not fabricated.
@@ -113,14 +115,14 @@ def render():
 
     if hs.get("available"):
         metrics.append({
-            "label":    "Memories in Bank",
+            "label":    "Memories Retrieved",   # ← accurate: recall result, not total bank count
             "value":    str(hs["memory_count"]),
             "sublabel": f"Bank: {hs['bank_id']}",
             "accent":   COLORS["accent"],
         })
     else:
         metrics.append({
-            "label":    "Memories in Bank",
+            "label":    "Memories Retrieved",
             "value":    "N/A",
             "sublabel": hs.get("reason", "Hindsight unavailable"),
             "accent":   COLORS["text_muted"],
